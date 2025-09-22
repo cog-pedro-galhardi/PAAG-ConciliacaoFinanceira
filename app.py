@@ -3,6 +3,7 @@ import pandas as pd
 import awswrangler as wr
 import boto3
 from datetime import datetime
+import io
 
 # Page configuration
 st.set_page_config(
@@ -35,12 +36,26 @@ st.markdown("""
         border: 1px solid #1A1C23;
         border-radius: 10px;
     }
-    /* Button styling */
-    div[data-testid="stButton"] > button {
+    /* Button styling (geral e download) */
+    div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button {
         background-color: #4A90E2;
-        color: white;
+        color: white !important; /* !important para sobrescrever o tema light */
         border-radius: 5px;
-        border: none;
+        border: 1px solid #4A90E2;
+    }
+    /* Oculta as linhas horizontais da grade do DataFrame tornando a borda transparente */
+    :root {
+        --gdg-border-color: transparent;
+    }
+    /* Garante que os filtros mantenham o fundo escuro e texto claro */
+    div[data-testid="stMultiSelect"] > div, div[data-testid="stDateInput"] > div > div {
+        background-color: #1A1C23;
+    }
+    div[data-testid="stMultiSelect"] label, div[data-testid="stDateInput"] label {
+        color: #A0AEC0 !important;
+    }
+    div[data-testid="stMultiSelect"] input, div[data-testid="stDateInput"] input {
+        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -124,12 +139,11 @@ if not df.empty:
         # Usa colunas para alinhar a imagem e o texto na mesma linha
         logo_col, title_col = st.columns([1, 3], vertical_alignment="center")
         with logo_col:
-            st.image("assets/image.png", width=50)
+            st.image("assets/paag-logo.png", width=80)
         with title_col:
-            st.markdown("### PAAG")
-            st.markdown("Conciliação Financeira")
+            st.markdown("### Conciliação Financeira")
 
-        st.selectbox(" ", ["- Stark"])
+        st.selectbox(" ", ["Stark"])
 
     # --- Título Principal ---
     st.title("Conciliação Financeira - Stark")
@@ -248,20 +262,39 @@ if not df.empty:
 
         st.markdown("---")
 
-        # Dataframe section
-        col_btn, col_title = st.columns([0.85,0.15])
-        with col_title:
-            if st.button("Extrair Relatório"):
-                csv = df_filtrado.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Clique para baixar",
-                    data=csv,
-                    file_name='relatorio_conciliacao_stark.csv',
-                    mime='text/csv'
-                )
-        with col_btn:
-            st.header("Dados de Conciliação")
+        # --- Seção do DataFrame com Botões de Download ---
+        title_col, btns_col = st.columns([0.6, 0.4], vertical_alignment="center")
 
+        with title_col:
+            st.markdown("### Dados de Conciliação")
+
+        with btns_col:
+            # Prepara os dados para download em memória
+            csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
+            
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_filtrado.to_excel(writer, index=False, sheet_name='Conciliacao')
+            excel_data = output.getvalue()
+            
+            # Cria colunas para os botões para que fiquem lado a lado
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    label="⬇️ Baixar CSV",
+                    data=csv_data,
+                    file_name='relatorio_conciliacao.csv',
+                    mime='text/csv',
+                    use_container_width=True
+                )
+            with dl_col2:
+                st.download_button(
+                    label="⬇️ Baixar XLSX",
+                    data=excel_data,
+                    file_name='relatorio_conciliacao.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True
+                )
 
         # Função para estilizar as colunas de status com cores
         def style_status(val):

@@ -2,3 +2,4 @@ streamlit
 pandas
 awswrangler
 boto3
+openpyxl
