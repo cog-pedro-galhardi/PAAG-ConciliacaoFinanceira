@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import awswrangler as wr
+import boto3
 
 # Page configuration
 st.set_page_config(
@@ -56,13 +57,23 @@ def load_data_from_athena():
     """
     Conecta ao AWS Athena, executa uma query na view especificada
     e retorna os dados como um DataFrame do Pandas.
+    Usa as credenciais guardadas no Streamlit Secrets.
     """
     try:
+        # Cria uma sessão boto3 usando os segredos do Streamlit
+        # Isso garante que a conexão seja autenticada na nuvem
+        boto_session = boto3.Session(
+            aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=st.secrets["AWS_REGION"]
+        )
+        
         query = f'SELECT * FROM "{ATHENA_DATABASE}"."{ATHENA_VIEW}"'
         df = wr.athena.read_sql_query(
             sql=query,
             database=ATHENA_DATABASE,
-            s3_output=S3_OUTPUT_LOCATION
+            s3_output=S3_OUTPUT_LOCATION,
+            boto3_session=boto_session # Passa a sessão para o awswrangler
         )
         
         # Renomear as colunas para corresponder ao front-end
