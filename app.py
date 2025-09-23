@@ -227,18 +227,14 @@ if not df.empty:
 
 
     if not df_filtrado.empty:
-        total_transacoes = len(df_filtrado)
-        
-        transacoes_conciliadas = df_filtrado[df_filtrado['Status Conciliação'].str.strip().str.upper() == 'CONCILIADO'].shape[0]
-        
+        total_transacoes = df_filtrado['Quantidade'].sum()
+        transacoes_conciliadas = df_filtrado[df_filtrado['Status Conciliação'].str.strip().str.upper() == 'CONCILIADO']['Quantidade'].sum()
         taxa_conciliacao = (transacoes_conciliadas / total_transacoes) * 100 if total_transacoes > 0 else 0
-
         valor_paag_total = df_filtrado['Valor Paag'].sum()
         valor_stark_total = df_filtrado['Valor Stark'].sum()
         diferenca_valores = abs(valor_paag_total - valor_stark_total)
-
         integridade_db = 100.0
-        integridade_registros = len(df_filtrado)
+        integridade_registros = total_transacoes
 
         col1, col2, col3 = st.columns(3)
 
