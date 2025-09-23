@@ -5,7 +5,6 @@ import boto3
 from datetime import datetime
 import io
 
-# Page configuration
 st.set_page_config(
     page_title="Conciliação Financeira",
     page_icon="assets/cognitivo_ai_logo.jpg",
@@ -13,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for styling
 st.markdown("""
 <style>
     /* Main app background */
@@ -60,24 +58,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# --- AWS Athena Configuration ---
-# Substitua os valores abaixo pelos da sua conta AWS
 ATHENA_DATABASE = "conciliacao_financeira"
 ATHENA_VIEW = "gold_paag_stark_agregada"
 S3_OUTPUT_LOCATION = "s3://aws-athena-query-results-593793067943-us-east-1/"
 
-# Função para buscar dados do Athena
 @st.cache_data
 def load_data_from_athena():
-    """
-    Conecta ao AWS Athena, executa uma query na view especificada
-    e retorna os dados como um DataFrame do Pandas.
-    Usa as credenciais guardadas no Streamlit Secrets.
-    """
     try:
-        # Cria uma sessão boto3 usando os segredos do Streamlit
-        # Isso garante que a conexão seja autenticada na nuvem
         boto_session = boto3.Session(
             aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
             aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
@@ -89,7 +76,7 @@ def load_data_from_athena():
             sql=query,
             database=ATHENA_DATABASE,
             s3_output=S3_OUTPUT_LOCATION,
-            boto3_session=boto_session # Passa a sessão para o awswrangler
+            boto3_session=boto_session
         )
         
         # Renomear as colunas para corresponder ao front-end
@@ -118,15 +105,12 @@ def load_data_from_athena():
         return df
     except Exception as e:
         st.error(f"Erro ao conectar ou buscar dados no Athena: {e}")
-        return pd.DataFrame() # Retorna um DataFrame vazio em caso de erro
+        return pd.DataFrame()
 
-# Carrega os dados
 df = load_data_from_athena()
 
 
 if not df.empty:
-    # --- Conversão de Tipos de Dados ---
-    # Garante que as colunas de data sejam do tipo datetime para a filtragem
     try:
         df['Data Criação'] = pd.to_datetime(df['Data Criação'])
         df['Data Atualização'] = pd.to_datetime(df['Data Atualização'])
@@ -152,17 +136,17 @@ if not df.empty:
     # --- Filtros ---
     st.markdown("### Filtros")
     
-    filt_col1, filt_col2 = st.columns([1, 2])
+    filt_col1, filt_col2, filt_col3, filt_col4 = st.columns([1, 1, 1, 2])
 
     with filt_col1:
         tipos_de_fluxo_disponiveis = df['Tipo Fluxo'].unique().tolist()
         
-        # Tenta encontrar 'cashin' ou 'CREDITO' para definir como filtro padrão, ignorando o case.
+        # Tenta encontrar 'cashin' para definir como filtro padrão, ignorando o case.
         default_filter = []
         for fluxo in tipos_de_fluxo_disponiveis:
-            if str(fluxo).strip().upper() in ['CASHIN', 'CREDITO']:
+            if str(fluxo).strip().upper() in ['CASHIN']:
                 default_filter.append(fluxo)
-                break  # Pega o primeiro que encontrar e para
+                break
 
         fluxo_selecionado = st.multiselect(
             label="Tipo de Fluxo:",
@@ -171,7 +155,25 @@ if not df.empty:
         )
 
     with filt_col2:
-        # Define as datas mínima e máxima com base nos dados disponíveis
+        # Garante que todos os valores são strings para evitar erros com tipos mistos
+        status_tr_disponiveis = sorted(df['Status TR'].astype(str).unique().tolist())
+        status_tr_selecionado = st.multiselect(
+            label="Status TR:",
+            options=status_tr_disponiveis,
+            default=[]
+        )
+
+    with filt_col3:
+        # Garante que todos os valores são strings para evitar erros com tipos mistos
+        status_conciliacao_disponiveis = sorted(df['Status Conciliação'].astype(str).unique().tolist())
+        status_conciliacao_selecionado = st.multiselect(
+            label="Status Conciliação:",
+            options=status_conciliacao_disponiveis,
+            default=[]
+        )
+
+    with filt_col4:
+        # Define as datas min e max com base nos dados disponíveis
         min_date = df['Data Criação'].min().date()
         max_date = df['Data Criação'].max().date()
 
@@ -195,16 +197,23 @@ if not df.empty:
             )
 
 
-    # --- Lógica de Filtragem ---
+    # Aplica os filtros em sequência. Começa com uma cópia do DataFrame original.
+    df_filtrado = df.copy()
+
     # 1. Filtra por tipo de fluxo
     if fluxo_selecionado:
-        df_filtrado = df[df['Tipo Fluxo'].isin(fluxo_selecionado)]
-    else:
-        df_filtrado = df.copy()
+        df_filtrado = df_filtrado[df_filtrado['Tipo Fluxo'].isin(fluxo_selecionado)]
 
-    # 2. Filtra pelo período de data selecionado
+    # 2. Filtra por Status TR
+    if status_tr_selecionado:
+        df_filtrado = df_filtrado[df_filtrado['Status TR'].isin(status_tr_selecionado)]
+    
+    # 3. Filtra por Status Conciliação
+    if status_conciliacao_selecionado:
+        df_filtrado = df_filtrado[df_filtrado['Status Conciliação'].isin(status_conciliacao_selecionado)]
+
+    # 4. Filtra pelo período de data selecionado
     if not df_filtrado.empty and start_date and end_date:
-        # Converte as datas do filtro para datetime para garantir a comparação correta
         start_datetime = datetime.combine(start_date, datetime.min.time())
         end_datetime = datetime.combine(end_date, datetime.max.time())
         
@@ -216,12 +225,10 @@ if not df.empty:
 
     st.markdown("---")
 
-    # Metrics - AGORA CALCULADAS COM BASE NOS DADOS FILTRADOS
-    # Adicionamos uma verificação para o caso do filtro não retornar nenhum dado
+
     if not df_filtrado.empty:
         total_transacoes = len(df_filtrado)
         
-        # Tornar a verificação de status mais robusta (ignora maiúsculas/minúsculas e espaços em branco)
         transacoes_conciliadas = df_filtrado[df_filtrado['Status Conciliação'].str.strip().str.upper() == 'CONCILIADO'].shape[0]
         
         taxa_conciliacao = (transacoes_conciliadas / total_transacoes) * 100 if total_transacoes > 0 else 0
@@ -230,7 +237,6 @@ if not df.empty:
         valor_stark_total = df_filtrado['Valor Stark'].sum()
         diferenca_valores = abs(valor_paag_total - valor_stark_total)
 
-        # Lógica de placeholder para integridade, usando os dados filtrados
         integridade_db = 100.0
         integridade_registros = len(df_filtrado)
 
@@ -261,15 +267,12 @@ if not df.empty:
             )
 
         st.markdown("---")
-
-        # --- Seção do DataFrame com Botões de Download ---
         title_col, btns_col = st.columns([0.6, 0.4], vertical_alignment="center")
 
         with title_col:
             st.markdown("### Dados de Conciliação")
 
         with btns_col:
-            # Prepara os dados para download em memória
             csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
             
             output = io.BytesIO()
@@ -277,7 +280,6 @@ if not df.empty:
                 df_filtrado.to_excel(writer, index=False, sheet_name='Conciliacao')
             excel_data = output.getvalue()
             
-            # Cria colunas para os botões para que fiquem lado a lado
             dl_col1, dl_col2 = st.columns(2)
             with dl_col1:
                 st.download_button(
@@ -296,25 +298,19 @@ if not df.empty:
                     use_container_width=True
                 )
 
-        # Função para estilizar as colunas de status com cores
         def style_status(val):
-            """
-            Aplica um estilo de fundo colorido a um valor de status.
-            Normaliza o valor (remove espaços e converte para maiúsculas) para garantir a correspondência.
-            """
-            # Normaliza o valor para ser mais robusto
             normalized_val = str(val).strip().upper()
             
             color_map = {
                 # Status de Conciliação e STT
-                'CONCILIADO': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
-                'DIVERGENTE': 'background-color: #ffc107; color: black; border-radius: 5px; padding: 3px 8px;',
+                'CONCILIADO': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',# Verde
+                'DIVERGENTE': 'background-color: #ffc107; color: black; border-radius: 5px; padding: 3px 8px;',# Amarelo 
                 'NAO_CONCLUIDO': 'background-color: #dc3545; color: white; border-radius: 5px; padding: 3px 8px;',
                 'S - NST': 'background-color: #6f42c1; color: white; border-radius: 5px; padding: 3px 8px;', # Roxo
                 'ST': 'background-color: #6f42c1; color: white; border-radius: 5px; padding: 3px 8px;', # Roxo
                 'NS - NST': 'background-color: #6c757d; color: white; border-radius: 5px; padding: 3px 8px;', # Cinza
                 
-                # Status TR (APROVADO/REJEITADO/SUCCESS/FAILED/PENDING) - Verde para sucesso, Vermelho para falha, Amarelo para pendente
+                # Status TR (APROVADO/REJEITADO/SUCCESS/FAILED/PENDING)
                 'APROVADO': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
                 'SUCCESS': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
                 'SUCESSO': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
@@ -325,10 +321,9 @@ if not df.empty:
                 'PENDENTE': 'background-color: #ffc107; color: black; border-radius: 5px; padding: 3px 8px;',
                 'PENDING': 'background-color: #ffc107; color: black; border-radius: 5px; padding: 3px 8px;',
                 
-                # Tipo de Fluxo (CRÉDITO/DÉBITO/CASHIN)
-                'CREDITO': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
+                # Tipo de Fluxo (CASHOUT/CASHIN)
                 'CASHIN': 'background-color: #28a745; color: white; border-radius: 5px; padding: 3px 8px;',
-                'DEBITO': 'background-color: #17a2b8; color: white; border-radius: 5px; padding: 3px 8px;',
+                'CASHOUT': 'background-color: #17a2b8; color: white; border-radius: 5px; padding: 3px 8px;',
             }
             return color_map.get(normalized_val, '')
 
@@ -340,7 +335,7 @@ if not df.empty:
         styled_df = df_filtrado.style.apply(lambda col: col.map(style_status), subset=cols_to_style)
 
 
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
     else:
         st.warning("Nenhum dado encontrado para os filtros selecionados.")
 else:
@@ -349,7 +344,6 @@ else:
 
 # --- Rodapé ---
 st.markdown("---")
-# Usa colunas para centralizar a logo e o texto no rodapé
 col1, col2, col3 = st.columns([2, 3, 2])
 with col2:
     st.markdown("<p style='text-align: center; color: grey;'>Desenvolvido pela Cognitivo.AI</p>", unsafe_allow_html=True)
