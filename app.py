@@ -79,7 +79,7 @@ def load_data_from_athena():
             boto3_session=boto_session
         )
         
-        # Renomear as colunas para corresponder ao front-end
+        # Renomear as colunas para corresponder ao front
         column_mapping = {
             'tr_created_at': 'Data Criação',
             'tr_updated_at': 'Data Atualização',
@@ -107,20 +107,65 @@ def load_data_from_athena():
         st.error(f"Erro ao conectar ou buscar dados no Athena: {e}")
         return pd.DataFrame()
 
+@st.cache_data
+def get_integrity_counts():
+    try:
+        boto_session = boto3.Session(
+            aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=st.secrets["AWS_REGION"]
+        )
+        
+        tables_to_count = {
+            "validos": "stg_transactions",
+            "duplicados": "stg_transactions_duplicadas",
+            "nulos": "stg_transactions_nulos"
+        }
+        
+        counts = {}
+        for key, table in tables_to_count.items():
+            query = f"""
+                SELECT COUNT(*) as count 
+                FROM "{ATHENA_DATABASE}"."{table}" ts
+                LEFT JOIN "{ATHENA_DATABASE}"."stg_processors" p ON ts.processor_id = p.id
+                WHERE UPPER(p.processor_type) = 'STARK'
+            """
+            df_count = wr.athena.read_sql_query(
+                sql=query,
+                database=ATHENA_DATABASE,
+                s3_output=S3_OUTPUT_LOCATION,
+                boto3_session=boto_session
+            )
+            counts[key] = df_count['count'][0]
+        
+        total_registros = sum(counts.values())
+        registros_validos = counts.get("validos", 0)
+            
+        return registros_validos, total_registros
+    except Exception as e:
+        st.error(f"Erro ao calcular a integridade do banco de dados: {e}")
+        return 0, 0
+
+# Carrega os dados
 df = load_data_from_athena()
+registros_validos, total_registros_base = get_integrity_counts()
 
 
 if not df.empty:
+
+    if total_registros_base > 0:
+        integridade_db = (registros_validos / total_registros_base) * 100
+    else:
+        integridade_db = 0.0
+
     try:
         df['Data Criação'] = pd.to_datetime(df['Data Criação'])
         df['Data Atualização'] = pd.to_datetime(df['Data Atualização'])
     except Exception as e:
         st.error(f"Erro ao converter colunas de data: {e}")
-        # Prossegue com os dados que puderam ser convertidos, mas avisa o usuário
     
-    # Sidebar
+    # --- Sidebar ---
     with st.sidebar:
-        # Usa colunas para alinhar a imagem e o texto na mesma linha
         logo_col, title_col = st.columns([1, 3], vertical_alignment="center")
         with logo_col:
             st.image("assets/paag-logo.png", width=80)
@@ -155,7 +200,6 @@ if not df.empty:
         )
 
     with filt_col2:
-        # Garante que todos os valores são strings para evitar erros com tipos mistos
         status_tr_disponiveis = sorted(df['Status TR'].astype(str).unique().tolist())
         status_tr_selecionado = st.multiselect(
             label="Status TR:",
@@ -164,7 +208,6 @@ if not df.empty:
         )
 
     with filt_col3:
-        # Garante que todos os valores são strings para evitar erros com tipos mistos
         status_conciliacao_disponiveis = sorted(df['Status Conciliação'].astype(str).unique().tolist())
         status_conciliacao_selecionado = st.multiselect(
             label="Status Conciliação:",
@@ -173,11 +216,9 @@ if not df.empty:
         )
 
     with filt_col4:
-        # Define as datas min e max com base nos dados disponíveis
         min_date = df['Data Criação'].min().date()
         max_date = df['Data Criação'].max().date()
 
-        # Cria uma sub-coluna para alinhar os campos de data
         date_col1, date_col2 = st.columns(2)
         with date_col1:
             start_date = st.date_input(
@@ -197,7 +238,6 @@ if not df.empty:
             )
 
 
-    # Aplica os filtros em sequência. Começa com uma cópia do DataFrame original.
     df_filtrado = df.copy()
 
     # 1. Filtra por tipo de fluxo
@@ -233,8 +273,6 @@ if not df.empty:
         valor_paag_total = df_filtrado['Valor Paag'].sum()
         valor_stark_total = df_filtrado['Valor Stark'].sum()
         diferenca_valores = abs(valor_paag_total - valor_stark_total)
-        integridade_db = 100.0
-        integridade_registros = total_transacoes
 
         col1, col2, col3 = st.columns(3)
 
@@ -258,7 +296,7 @@ if not df.empty:
             st.metric(
                 label="Integridade do Banco de Dados",
                 value=f"{integridade_db:.1f}%",
-                delta=f"{integridade_registros} de {integridade_registros} registros completos",
+                delta=f"{registros_validos:n} de {total_registros_base:n} registros",
                 delta_color="off"
             )
 
