@@ -84,6 +84,8 @@ def load_data_from_athena():
             'tr_created_at': 'Data Criação',
             'tr_updated_at': 'Data Atualização',
             'tr_merchant_id': 'Merchant ID',
+            'ms_name': 'MS Nome',
+            'ms_licence': 'MS Licença',
             'tr_processor_id': 'Processor ID',
             'tr_flow_type': 'Tipo Fluxo',
             'tr_status': 'Status TR',
